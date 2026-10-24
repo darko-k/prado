@@ -28,13 +28,16 @@ Svaka slika u `metadata.json` (i u svom `.json` pored slike) ima:
 
 ## Pokretanje
 
-**GitHub Actions** (preporučeno): *Actions → PRADO preuzimanje → Run workflow*.
-Preuzima državu po državu i nakon svake radi commit u `main`. Ako ne stigne sve u jednom
-pokretanju (limit ~6 h), sljedeće pokretanje nastavlja gdje je stalo (workflow se pokreće i svaki dan).
+> **Napomena:** PRADO stranica GitHubovim serverima vraća `403 – Browser check`
+> (zaštita od botova), pa workflow na `ubuntu-latest` ne može preuzeti podatke.
+> Preuzimanje treba pokrenuti lokalno (vidi dolje) ili na *self-hosted* runneru.
 
-**Lokalno:**
+**Lokalno pa u repozitorij:**
 ```
+git clone https://github.com/darko-k/prado && cd prado
 pip install -r scraper/requirements.txt
-python scraper/prado_scraper.py --out Prado                    # sve države
 python scraper/prado_scraper.py --countries BGR --limit 2      # test
+python scraper/prado_scraper.py --out Prado                    # sve države
+git add Prado && git commit -m "PRADO podaci" && git push origin main
 ```
+

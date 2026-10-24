@@ -15,8 +15,6 @@ on:
         description: "Ponovo preuzmi i već završene dokumente"
         type: boolean
         default: false
-  schedule:
-    - cron: "17 2 * * *"   # svaki dan – nastavlja gdje je stao i dopunjava nove isprave
 
 permissions:
   contents: write
