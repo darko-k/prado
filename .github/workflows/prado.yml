@@ -42,6 +42,11 @@ jobs:
       - name: Instalacija
         run: pip install -r scraper/requirements.txt
 
+      - name: Dijagnostika pristupa PRADO
+        run: |
+          CODE=$(curl -s -o /tmp/start.html -w "%{http_code}" -A "Mozilla/5.0 (PRADO archiver; research use)" https://www.consilium.europa.eu/prado/hr/search-by-document-country.html || echo "curl-err")
+          echo "::warning::PRADO HTTP status: $CODE, bajtova: $(wc -c < /tmp/start.html 2>/dev/null), linkova država: $(grep -o 'prado-documents/[A-Za-z0-9]\{3\}/index.html' /tmp/start.html | sort -u | wc -l), title: $(grep -o '<title>[^<]*' /tmp/start.html | head -1 | cut -c1-120)"
+
       - name: Preuzimanje država po država (commit nakon svake)
         env:
           COUNTRIES: ${{ github.event.inputs.countries }}
@@ -56,7 +61,8 @@ jobs:
           if [ -n "$COUNTRIES" ]; then
             LIST=$(echo "$COUNTRIES" | tr ',' ' ')
           else
-            LIST=$(python scraper/prado_scraper.py --list-countries)
+            LIST=$(python scraper/prado_scraper.py --list-countries 2>/tmp/err.txt) || { echo "::error::list-countries: $(tail -c 1500 /tmp/err.txt | tr '\n' ' ')"; exit 1; }
+            [ -n "$LIST" ] || { echo "::error::Nije pronađena nijedna država"; exit 1; }
           fi
           echo "Države: $LIST"
 
@@ -66,7 +72,7 @@ jobs:
               break
             fi
             echo "::group::$C"
-            python scraper/prado_scraper.py --out Prado --countries "$C" --limit "$LIMIT" $FORCE || echo "Greška za $C"
+            python scraper/prado_scraper.py --out Prado --countries "$C" --limit "$LIMIT" $FORCE 2>/tmp/err.txt || echo "::warning::Greška za $C: $(tail -c 800 /tmp/err.txt | tr '\n' ' ')"
             echo "::endgroup::"
             git add -A Prado
             if ! git diff --cached --quiet; then
