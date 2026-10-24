@@ -181,3 +181,43 @@ stranice. Zato `metadata.json` i `.json` pored svake slike sadrže:
 - **`datum_arhivske_kopije`**: kada je kopija napravljena.
 
 Dokumenti kojih nema u arhivi navedeni su u `Prado/index.json` (polje `greske`).
+
+---
+
+## 9. Provjera prema originalnoj PRADO stranici
+
+Nakon preuzimanja (posebno iz arhive) provjeri jesu li preuzeti dokumenti isti kao na
+originalnoj PRADO stranici. Provjera radi samo na računaru na kojem se PRADO otvara.
+
+```bash
+pip install -r scraper/requirements.txt
+python scraper/provjera.py --out Prado --countries BIH
+```
+
+Za svaki dokument program otvara originalnu stranicu, preuzima originalne slike i
+uspoređuje ih sa spremljenima. Prvo se uspoređuje SHA-256 (bajt po bajt), a ako se
+datoteke razlikuju, i piksel po piksel. Uspoređuju se i tekstovi opisa i popis
+dokumenata države.
+
+| Rezultat slike | Značenje |
+|---|---|
+| identična originalu | ista datoteka, bajt po bajt |
+| vizuelno ista | isti pikseli, datoteka je samo drugačije spremljena |
+| ista slika, druga veličina | u arhivi je bila npr. samo sličica |
+| RAZLIČITA od originala | slika se razlikuje od originala |
+| nedostaje u preuzetim podacima | slika je na originalu, a nije preuzeta |
+| nema je više na originalu | slika je preuzeta, a na originalu je više nema |
+
+Dokument je **potvrđen** kad su sve slike identične ili vizuelno iste i tekst je isti.
+
+Rezultat:
+
+- **`Prado/PROVJERA.md`**: pregled svih dokumenata i popis razlika,
+- **`Prado/provjera.json`** i **`provjera.json`** u folderu svakog dokumenta: detalji
+  i SHA-256 obje verzije svake slike,
+- **`provjera/`** u folderu dokumenta: originali slika koje nisu identične, za usporedbu
+  pored spremljene slike.
+
+Izlazni kod je `0` kad je sve potvrđeno, `1` kad ima razlika i `2` kad PRADO blokira
+pristup (tada se ništa ne zapisuje). Za dokumente s razlikama preuzmi podatke direktno:
+`python scraper/prado_scraper.py --countries BIH --force`.

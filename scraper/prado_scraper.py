@@ -294,8 +294,9 @@ def get_country_docs(http: Http, lang: str, country: dict) -> list[dict]:
                 for b in s2.find_all("a", href=True):
                     m = doc_re.search(urljoin(href, b["href"]))
                     if m and m.group(1) not in docs:
+                        naziv = clean(re.sub(rf"^{re.escape(m.group(1))}\s*-?\s*", "", clean(b.get_text(" "))))
                         docs[m.group(1)] = {"id": m.group(1), "url": urljoin(href, b["href"]).split("#")[0],
-                                            "naziv_iz_popisa": clean(b.get_text(" "))}
+                                            "naziv_iz_popisa": naziv}
     return sorted(docs.values(), key=lambda d: d["id"])
 
 
