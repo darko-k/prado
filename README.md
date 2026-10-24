@@ -100,9 +100,10 @@ python scraper/prado_scraper.py --countries BGR --limit 2    # probno: 2 bugarsk
 
 Puno preuzimanje, commit država po država i Git LFS opisani su u **[UPUTE.md](UPUTE.md)**.
 
-> ⚠️ PRADO stranica blokira GitHubove servere (`403 – Browser check`), pa se preuzimanje
-> pokreće s vlastitog računara. Workflow u `.github/workflows/` radi samo na
-> *self-hosted* runneru.
+> ⚠️ PRADO stranica blokira automatske zahtjeve (`403 – Browser check`), i s GitHubovih
+> servera i s kućnog računara. Dok se to ne promijeni, stranice se spremaju ručno kroz
+> preglednik (poglavlje 8 u [UPUTE.md](UPUTE.md)). Workflow u `.github/workflows/` radi
+> samo na *self-hosted* runneru.
 
 ---
 
@@ -111,7 +112,9 @@ Puno preuzimanje, commit država po država i Git LFS opisani su u **[UPUTE.md](
 | Putanja | Opis |
 |---|---|
 | [`scraper/prado_scraper.py`](scraper/prado_scraper.py) | program za preuzimanje |
+| [`scraper/linkovi_slika.py`](scraper/linkovi_slika.py) | linkovi na slike u punoj veličini iz ručno spremljenih stranica |
 | [`scraper/requirements.txt`](scraper/requirements.txt) | Python biblioteke |
+| [`rucno/`](rucno/) | linkovi za ručno spremanje i spremljene stranice |
 | [`UPUTE.md`](UPUTE.md) | upute za rad |
 | [`.github/workflows/prado.yml`](.github/workflows/prado.yml) | workflow za ručno pokretanje |
 | `Prado/` | preuzeti podaci |

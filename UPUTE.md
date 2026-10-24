@@ -3,9 +3,10 @@
 Ove upute opisuju kako preuzeti podatke s PRADO stranice na vlastiti računar i spremiti ih
 u ovaj repozitorij na granu `main`.
 
-> **Zašto lokalno?** PRADO stranica blokira automatske zahtjeve s GitHubovih servera
-> (odgovor `403 – Browser check`). Zato GitHub Actions ne može sam preuzeti podatke,
-> pa se preuzimanje pokreće s vlastitog računara.
+> **Važno (provjereno 24. 10. 2026.):** PRADO stranica blokira sve automatske zahtjeve
+> (odgovor `403 – Browser check`), ne samo s GitHubovih servera nego i s kućnog računara.
+> Scraper (poglavlja 2–4) radi tek kad Vijeće EU dozvoli pristup. Dotad se stranice
+> spremaju ručno kroz preglednik (poglavlje 8).
 
 ---
 
@@ -149,8 +150,39 @@ dodaj `--force`.
 
 | Problem | Rješenje |
 |---|---|
-| `403` ili „Browser check” | Stranica je blokirala zahtjeve. Pričekaj nekoliko sati i pokušaj ponovo s većim `--delay` (npr. `1`). Ako se ponavlja, otvori stranicu u pregledniku s istog računara. |
+| `403` ili „Browser check” | Stranica blokira automatske zahtjeve, i s kućnog računara. Scraper radi tek kad PRADO dozvoli pristup; dotad spremaj stranice ručno (poglavlje 8). |
 | `Filename too long` (Windows) | `git config --global core.longpaths true` i repozitorij u kratkoj putanji (`C:\prado`). |
 | Push odbijen zbog veličine | Koristi varijantu B (država po država) i Git LFS. |
 | `python` nije prepoznat | Na Windowsu koristi `py` ili reinstaliraj Python s opcijom *Add to PATH*. |
 | Neki dokument ima grešku | Pogledaj `Prado/index.json` (polje `greske`) i `Prado/prado_log.txt`, pa ponovo pokreni samo tu državu. |
+
+---
+
+## 8. Ručno spremanje kroz preglednik
+
+Dok scraper dobija `403`, stranice se spremaju ručno u Chromeu, u folder `rucno/`.
+
+| Datoteka | Sadržaj |
+|---|---|
+| `rucno/linkovi.html` | linkovi na svih 113 dokumenata za BIH, HRV, SVN, SRB, MNE, MKD i ALB, s kvačicama |
+| `rucno/linkovi.txt` | isti linkovi, jedan po redu |
+
+1. **Stranice dokumenata.** Otvori `rucno/linkovi.html`, klikni dokument, pa `Ctrl+S` →
+   *Web stranica, potpuna* → spremi u `rucno/<KOD>/` (npr. `rucno/BIH/`).
+   Spremaj stranice dokumenata, ne popis „Sve isprave”: popis ima samo dvije sličice po
+   dokumentu (oko 120×171 px) i nema opisa.
+2. **Linkovi na slike u punoj veličini.** Stranica dokumenta sadrži samo sličice, pa
+   linkove na pune slike napravi iz spremljenih stranica:
+
+   ```bash
+   python scraper/linkovi_slika.py rucno/BIH
+   ```
+
+   U folderu nastaju `slike_linkovi.html` (svaka slika sa stranom i zaštitnim elementom),
+   `slike_linkovi.txt` i prazan folder `slike/`.
+3. **Slike.** Otvori `rucno/<KOD>/slike_linkovi.html`, klikni sliku, pa `Ctrl+S` u
+   `rucno/<KOD>/slike/`. Ime ostavi kako jest (npr. `324389.jpg`), jer se po ID-u slika
+   kasnije povezuje s opisom.
+
+Link na punu sliku je `https://www.consilium.europa.eu/prado/images/<DOKUMENT>/<ID>.jpg`
+(server ne razlikuje `.jpg` i `.JPG`).
