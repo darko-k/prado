@@ -1,0 +1,87 @@
+name: PRADO preuzimanje
+
+on:
+  workflow_dispatch:
+    inputs:
+      countries:
+        description: "Kodovi država odvojeni zarezom (prazno = sve), npr. BGR,HRV"
+        required: false
+        default: ""
+      limit:
+        description: "Max dokumenata po državi (0 = svi; za test npr. 2)"
+        required: false
+        default: "0"
+      force:
+        description: "Ponovo preuzmi i već završene dokumente"
+        type: boolean
+        default: false
+  schedule:
+    - cron: "17 2 * * *"   # svaki dan – nastavlja gdje je stao i dopunjava nove isprave
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prado-scrape
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalacija
+        run: pip install -r scraper/requirements.txt
+
+      - name: Preuzimanje država po država (commit nakon svake)
+        env:
+          COUNTRIES: ${{ github.event.inputs.countries }}
+          LIMIT: ${{ github.event.inputs.limit || '0' }}
+          FORCE: ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          START=$(date +%s)
+          BUDGET=$((320*60))   # ostavi rezervu do limita od 350 min
+
+          if [ -n "$COUNTRIES" ]; then
+            LIST=$(echo "$COUNTRIES" | tr ',' ' ')
+          else
+            LIST=$(python scraper/prado_scraper.py --list-countries)
+          fi
+          echo "Države: $LIST"
+
+          for C in $LIST; do
+            if [ $(( $(date +%s) - START )) -gt $BUDGET ]; then
+              echo "Vremenski limit – nastavak u sljedećem pokretanju."
+              break
+            fi
+            echo "::group::$C"
+            python scraper/prado_scraper.py --out Prado --countries "$C" --limit "$LIMIT" $FORCE || echo "Greška za $C"
+            echo "::endgroup::"
+            git add -A Prado
+            if ! git diff --cached --quiet; then
+              git commit -q -m "PRADO: $C"
+              for i in 1 2 3; do
+                git pull -q --rebase origin main && git push -q origin HEAD:main && break
+                sleep 10
+              done
+            fi
+          done
+
+      - name: Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prado-log
+          path: Prado/prado_log.txt
+          if-no-files-found: ignore
