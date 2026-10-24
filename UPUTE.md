@@ -117,6 +117,7 @@ done
 | `--thumbs` | spremi i sličice (thumbnail) pored punih slika | ne |
 | `--force` | ponovo preuzmi i već završene dokumente | ne |
 | `--list-countries` | samo ispiši kodove svih država | – |
+| `--wayback [GGGGMMDD]` | preuzmi iz arhive web.archive.org, kopije najbliže datumu (vidi poglavlje 8) | ne (bez datuma: danas) |
 
 Da se stranica ne optereti, nemoj smanjivati `--delay` ni povećavati `--workers`
 preko zadanih vrijednosti.
@@ -149,8 +150,34 @@ dodaj `--force`.
 
 | Problem | Rješenje |
 |---|---|
-| `403` ili „Browser check” | Stranica je blokirala zahtjeve. Pričekaj nekoliko sati i pokušaj ponovo s većim `--delay` (npr. `1`). Ako se ponavlja, otvori stranicu u pregledniku s istog računara. |
+| `403` ili „Browser check” | Stranica je blokirala zahtjeve. Pričekaj nekoliko sati i pokušaj ponovo s većim `--delay` (npr. `1`). Ako se ponavlja, preuzmi iz arhive (poglavlje 8). |
 | `Filename too long` (Windows) | `git config --global core.longpaths true` i repozitorij u kratkoj putanji (`C:\prado`). |
 | Push odbijen zbog veličine | Koristi varijantu B (država po država) i Git LFS. |
 | `python` nije prepoznat | Na Windowsu koristi `py` ili reinstaliraj Python s opcijom *Add to PATH*. |
 | Neki dokument ima grešku | Pogledaj `Prado/index.json` (polje `greske`) i `Prado/prado_log.txt`, pa ponovo pokreni samo tu državu. |
+
+---
+
+## 8. Preuzimanje iz arhive (kad PRADO blokira pristup)
+
+Ako PRADO vraća `403 – Browser check`, iste stranice se mogu preuzeti iz javne arhive
+[Internet Archive – Wayback Machine](https://web.archive.org). Tada se ne šalje nijedan
+zahtjev PRADO stranici.
+
+```bash
+python scraper/prado_scraper.py --wayback --lang en --countries BIH --out Prado
+```
+
+- Bez datuma se uzimaju najnovije kopije. S datumom (`--wayback 20251201`) uzimaju se
+  kopije najbliže tom datumu.
+- Engleske stranice (`--lang en`) su u arhivi češće i novije od hrvatskih.
+- Pauza između zahtjeva je 1,5 s jer arhiva ograničava broj zahtjeva.
+
+Arhiva nije potpuna. Neki dokumenti ili slike mogu nedostajati, a umjesto pune slike
+može biti spremljena samo sličica. Kopije mogu biti i starije od trenutne PRADO
+stranice. Zato `metadata.json` i `.json` pored svake slike sadrže:
+
+- **`preuzeto_sa`**: tačan link arhivske kopije,
+- **`datum_arhivske_kopije`**: kada je kopija napravljena.
+
+Dokumenti kojih nema u arhivi navedeni su u `Prado/index.json` (polje `greske`).

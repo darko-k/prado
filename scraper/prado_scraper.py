@@ -32,9 +32,14 @@ Upotreba:
   python prado_scraper.py --countries BGR,HRV   # samo neke države
   python prado_scraper.py --limit 3             # test: max 3 dokumenta po državi
   python prado_scraper.py --out D:\\Prado        # drugi izlazni folder
+  python prado_scraper.py --wayback --lang en --countries BIH   # iz arhive web.archive.org
 
 Program se može prekinuti i ponovo pokrenuti — preskače već završene dokumente
 (osim uz --force).
+
+--wayback čita arhivirane kopije stranica s Internet Archivea (Wayback Machine) umjesto
+same PRADO stranice. Arhiva nije potpuna: neki dokumenti ili slike mogu nedostajati ili
+biti stariji. Datum svake kopije se zapisuje u metadata.json.
 """
 from __future__ import annotations
 
@@ -56,6 +61,7 @@ import requests
 from bs4 import BeautifulSoup, NavigableString, Comment, Tag
 
 BASE = "https://www.consilium.europa.eu"
+WAYBACK = "https://web.archive.org/web"
 LOG = logging.getLogger("prado")
 
 DOC_ID_RE = r"[A-Z0-9]{3}-[A-Z0-9]{2,4}-[A-Z0-9]{3,8}"
@@ -74,10 +80,11 @@ SKIP_TAGS = {"script", "style", "noscript", "template", "svg", "button", "form"}
 # HTTP
 # --------------------------------------------------------------------------- #
 class Http:
-    def __init__(self, delay: float, retries: int = 4, timeout: int = 60):
+    def __init__(self, delay: float, retries: int = 4, timeout: int = 60, wayback: str | None = None):
         self.delay = delay
         self.retries = retries
         self.timeout = timeout
+        self.wayback = wayback  # npr. "20261024": uzmi arhiviranu kopiju najbližu tom datumu
         self._local = threading.local()
         self._lock = threading.Lock()
         self._last = 0.0
@@ -102,27 +109,49 @@ class Http:
 
     def get(self, url: str) -> requests.Response:
         url = safe_url(url)
+        # "id_" vraća originalni sadržaj bez trake i prepravljanja linkova arhive
+        fetch = f"{WAYBACK}/{self.wayback}id_/{url}" if self.wayback else url
+        # u arhivi 403 znači da je arhivirana samo zaštita stranice — ponavljanje ne pomaže
+        final = {404, 403, 410} if self.wayback else {404}
         err = None
         for attempt in range(1, self.retries + 1):
             self._throttle()
             try:
-                r = self._session().get(url, timeout=self.timeout)
+                r = self._session().get(fetch, timeout=self.timeout)
                 if r.status_code == 200:
                     return r
-                if r.status_code == 404:
+                if r.status_code in final:
                     r.raise_for_status()
                 err = f"HTTP {r.status_code}"
+                if r.status_code == 429:  # arhiva ograničava broj zahtjeva
+                    time.sleep(60)
+                    continue
             except requests.HTTPError:
                 raise
             except requests.RequestException as e:
                 err = str(e)
             time.sleep(min(30, 2 ** attempt))
-        raise RuntimeError(f"GET {url} nije uspio: {err}")
+        raise RuntimeError(f"GET {fetch} nije uspio: {err}")
 
-    def html(self, url: str) -> tuple[str, BeautifulSoup]:
+    def page(self, url: str) -> tuple[str, BeautifulSoup, str]:
+        """HTML, soup i stvarni URL s kojeg je stranica preuzeta (kod --wayback: arhivska kopija)."""
         r = self.get(url)
         r.encoding = r.apparent_encoding if not r.encoding or r.encoding.lower() == "iso-8859-1" else r.encoding
-        return r.text, BeautifulSoup(r.text, "html.parser")
+        # samo stranica provjere ("chl_page"); obične stranice mogu sadržavati druge Cloudflare skripte
+        if "/orchestrate/chl_page/" in r.text or "<title>Browser check" in r.text:
+            raise RuntimeError(f"{r.url}: umjesto sadržaja je samo provjera preglednika")
+        return r.text, BeautifulSoup(r.text, "html.parser"), r.url
+
+    def html(self, url: str) -> tuple[str, BeautifulSoup]:
+        return self.page(url)[:2]
+
+
+def wayback_date(url: str) -> str | None:
+    """Datum arhivske kopije iz URL-a web.archive.org/web/20250820180611id_/..."""
+    m = re.search(r"/web/(\d{14})[a-z_]*/https?:", url or "")
+    if not m:
+        return None
+    return datetime.strptime(m.group(1), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc).isoformat()
 
 
 def safe_url(url: str) -> str:
@@ -246,9 +275,15 @@ def get_country_docs(http: Http, lang: str, country: dict) -> list[dict]:
             if f"/prado-documents/{code}/all/" in href and href.split("#")[0] not in visited:
                 queue.append(href.split("#")[0])
 
-    if not docs:  # rezervni put: kategorije
-        LOG.info("  %s: 'sve isprave' prazno, pokušavam po kategorijama", code)
-        _, soup = http.html(country["url"])
+    # rezervni put: kategorije. U arhivi je popis "sve isprave" često stariji od popisa
+    # po kategorijama, pa se kod --wayback uvijek spajaju oba.
+    if not docs or http.wayback:
+        LOG.info("  %s: tražim dokumente i po kategorijama", code)
+        try:
+            _, soup = http.html(country["url"])
+        except Exception as e:
+            LOG.warning("  %s: ne mogu otvoriti %s (%s)", code, country["url"], e)
+            soup = BeautifulSoup("", "html.parser")
         for a in soup.find_all("a", href=True):
             href = urljoin(country["url"], a["href"])
             if "docs-per-" in href:
@@ -540,7 +575,7 @@ def parse_image_page(soup: BeautifulSoup, doc_id: str, image_id: str, page_url: 
 def process_document(http: Http, lang: str, country: dict, country_dir: Path, doc: dict,
                      force: bool, thumbs: bool) -> dict:
     doc_id = doc["id"]
-    html, soup = http.html(doc["url"])
+    html, soup, fetched = http.page(doc["url"])
     parsed = parse_document(html, BeautifulSoup(html, "html.parser"), doc_id, doc["url"])
 
     naziv = doc.get("naziv_iz_popisa") or ""
@@ -589,12 +624,12 @@ def process_document(http: Http, lang: str, country: dict, country_dir: Path, do
         full_url = info["url_pune_slike"] or f"{BASE}/prado/images/{doc_id}/{img_id}.jpg"
 
         base = f"{n:02d}_{slug(strana or 'dokument', 40)}__{slug(element, 50)}__{img_id}"
-        data, used_url = None, None
+        data, used_url, source_url = None, None, None
         for u in [full_url] + ([thumb_url] if thumb_url else []):
             try:
                 r = http.get(u)
                 if r.content:
-                    data, used_url = r.content, u
+                    data, used_url, source_url = r.content, u, r.url
                     break
             except Exception as e:
                 LOG.warning("    %s slika %s: %s (%s)", doc_id, img_id, u, e)
@@ -639,9 +674,10 @@ def process_document(http: Http, lang: str, country: dict, country_dir: Path, do
                 "stranica_slike": page_url,
                 "puna_slika": full_url,
                 "sličica": thumb_url,
-                "preuzeto_sa": used_url,
+                "preuzeto_sa": source_url,
                 "stranica_dokumenta": doc["url"] + (f"#{im['sekcija_id']}" if im["sekcija_id"] != "opce" else ""),
             },
+            "datum_arhivske_kopije": wayback_date(source_url),
             "velicina_bajtova": len(data) if data else 0,
             "sha256": hashlib.sha256(data).hexdigest() if data else None,
         }
@@ -656,6 +692,8 @@ def process_document(http: Http, lang: str, country: dict, country_dir: Path, do
         "jezik": lang,
         "drzava": {k: country[k] for k in ("kod", "naziv", "sluzbeni_naziv", "url")},
         "preuzeto": now_iso(),
+        "preuzeto_sa": fetched,
+        "datum_arhivske_kopije": wayback_date(fetched),
         "naslov_stranice": parsed["naslov_stranice"],
         "h1": parsed["h1"],
         "opci_podaci": parsed["opci_podaci"],
@@ -682,14 +720,21 @@ def main():
     ap.add_argument("--countries", default="", help="npr. BGR,HRV,DEU (default: sve)")
     ap.add_argument("--limit", type=int, default=0, help="max dokumenata po državi (test)")
     ap.add_argument("--workers", type=int, default=4, help="paralelni dokumenti (default 4)")
-    ap.add_argument("--delay", type=float, default=0.3, help="pauza između zahtjeva u s (default 0.3)")
+    ap.add_argument("--delay", type=float, default=None,
+                    help="pauza između zahtjeva u s (default 0.3, uz --wayback 1.5)")
     ap.add_argument("--thumbs", action="store_true", help="spremi i sličice (thumbnail)")
     ap.add_argument("--force", action="store_true", help="ponovo preuzmi i završene dokumente")
     ap.add_argument("--list-countries", action="store_true", help="samo ispiši kodove država i izađi")
+    ap.add_argument("--wayback", nargs="?", const=datetime.now(timezone.utc).strftime("%Y%m%d"),
+                    metavar="GGGGMMDD",
+                    help="preuzmi iz arhive web.archive.org (kopije najbliže datumu; default danas)")
     args = ap.parse_args()
+    if args.wayback and not re.fullmatch(r"\d{4,14}", args.wayback):
+        ap.error("--wayback očekuje datum u obliku GGGGMMDD, npr. 20251201")
+    delay = args.delay if args.delay is not None else (1.5 if args.wayback else 0.3)
 
     if args.list_countries:
-        for c in get_countries(Http(delay=args.delay), args.lang):
+        for c in get_countries(Http(delay=delay, wayback=args.wayback), args.lang):
             print(c["kod"])
         return
 
@@ -701,7 +746,7 @@ def main():
     fh.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     LOG.addHandler(fh)
 
-    http = Http(delay=args.delay)
+    http = Http(delay=delay, wayback=args.wayback)
     countries = get_countries(http, args.lang)
     if args.countries:
         want = {c.strip().upper() for c in args.countries.split(",") if c.strip()}
@@ -713,7 +758,8 @@ def main():
         index = json.loads(index_path.read_text(encoding="utf-8"))
     except Exception:
         index = {"drzave": [], "greske": []}
-    index.update({"izvor": f"{BASE}/prado/{args.lang}", "azurirano": now_iso()})
+    index.update({"izvor": f"{BASE}/prado/{args.lang}", "azurirano": now_iso(),
+                  "arhiva": f"{WAYBACK} (kopije najbliže {args.wayback})" if args.wayback else None})
     errors = []
     for ci, country in enumerate(countries, 1):
         cdir = out / safe_name(f"{country['kod']} - {country['naziv']}", 60)
